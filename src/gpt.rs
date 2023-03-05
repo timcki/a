@@ -5,38 +5,54 @@ use reqwest::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, Value};
-use std::error::Error;
-use std::io::Read;
+use std::{error::Error, io::Read};
 
-const OPENAI_API_URL: &str = "https://api.openai.com/v1/completions";
-const OPENAI_MODEL: &str = "text-davinci-003";
-const MAX_TOKENS: u32 = 4097;
+const OPENAI_API_URL: &str = "https://api.openai.com/v1/chat/completions";
+const OPENAI_MODEL: &str = "gpt-3.5-turbo";
+const MAX_TOKENS: u32 = 4096;
 const TEMPERATURE: f32 = 0.2;
 
 type BoxResult<T> = Result<T, Box<dyn Error>>;
 
 #[derive(Serialize, Deserialize, Debug)]
-struct Prompt {
-    model: String,
-    prompt: String,
+struct Message<'a> {
+    role: &'a str,
+    content: &'a str,
+}
+
+impl<'a> Message<'a> {
+    fn new(prompt: &'a str) -> Self {
+        Self {role: "user", content: prompt}
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Prompt<'a> {
+    model: &'a str,
+    messages: [Message<'a>; 1],
     temperature: f32,
-    max_tokens: u32,
 }
 
-pub struct GPTClient {
-    api_key: String,
-    url: String,
+impl<'a> Prompt<'a> {
+    fn new(prompt: &'a str) -> Self {
+        Self { model: OPENAI_MODEL, messages: [Message::new(prompt)], temperature: TEMPERATURE}
+    }
 }
 
-impl GPTClient {
-    pub fn new(api_key: String) -> Self {
+pub struct GPTClient<'a> {
+    api_key: &'a str,
+    url: &'a str,
+}
+
+impl<'a> GPTClient<'a> {
+    pub fn new(api_key: &'a str) -> Self {
         GPTClient {
             api_key,
-            url: String::from(OPENAI_API_URL),
+            url: OPENAI_API_URL,
         }
     }
 
-    pub fn prompt(&self, prompt: String) -> BoxResult<String> {
+    pub fn prompt(&self, prompt: &str) -> BoxResult<String> {
         let prompt_length = prompt.len() as u32;
         if prompt_length >= MAX_TOKENS {
             return Err(format!(
@@ -46,15 +62,10 @@ impl GPTClient {
             .into());
         }
 
-        let p = Prompt {
-            max_tokens: MAX_TOKENS - prompt_length,
-            model: String::from(OPENAI_MODEL),
-            prompt,
-            temperature: TEMPERATURE,
-        };
+        let p = Prompt::new(prompt);
 
         let mut auth = String::from("Bearer ");
-        auth.push_str(&self.api_key);
+        auth.push_str(self.api_key);
 
         let mut headers = HeaderMap::new();
         headers.insert("Authorization", HeaderValue::from_str(auth.as_str())?);
@@ -63,12 +74,12 @@ impl GPTClient {
         let body = serde_json::to_string(&p)?;
 
         let client = Client::new();
-        let mut res = client.post(&self.url).body(body).headers(headers).send()?;
+        let mut res = client.post(self.url).body(body).headers(headers).send()?;
 
         let mut response_body = String::new();
         res.read_to_string(&mut response_body)?;
         let json_object: Value = from_str(&response_body)?;
-        let answer = json_object["choices"][0]["text"].as_str();
+        let answer = json_object["choices"][0]["message"]["content"].as_str();
 
         match answer {
             Some(a) => Ok(String::from(a)),
