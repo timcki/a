@@ -12,8 +12,9 @@ fn main() {
 
     let lang = args[0].clone();
     let p = args.join(" ");
-    let prompt  = format!("please generate {p}. Include only the code in your response without markdown backticks");
-    let api_key = std::env::var("OPENAI_API_KEY").expect("Please set the OPENAI_API_KEY environment variable");
+    let prompt = format!("Please generate a {p}");
+    let api_key = std::env::var("OPENAI_API_KEY")
+        .expect("Please set the OPENAI_API_KEY environment variable");
     let client = gpt::GPTClient::new(&api_key);
 
     let mut response = client
