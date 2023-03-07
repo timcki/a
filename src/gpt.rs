@@ -1,10 +1,6 @@
-use super::util;
-use reqwest::{
-    blocking::Client,
-    header::{HeaderMap, HeaderValue},
-};
+//use super::util;
+use minreq;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::{error::Error, io::Read};
 
 const OPENAI_API_URL: &str = "https://api.openai.com/v1/chat/completions";
@@ -12,19 +8,27 @@ const OPENAI_MODEL: &str = "gpt-3.5-turbo";
 const MAX_TOKENS: usize = 4096;
 const TEMPERATURE: f32 = 0.2;
 
-type BoxResult<T> = Result<T, Box<dyn Error>>;
-
 #[derive(Serialize, Deserialize, Debug)]
-struct Message<'a> {
-    role: &'a str,
-    content: &'a str,
+struct Choice {
+    message: Message,
 }
 
-impl<'a> Message<'a> {
-    fn new(role: &'a str, prompt: &'a str) -> Self {
+#[derive(Serialize, Deserialize, Debug)]
+struct Response {
+    choices: Vec<Choice>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+struct Message {
+    role: String,
+    content: String,
+}
+
+impl Message {
+    fn new(role: &str, prompt: &str) -> Self {
         Self {
-            role,
-            content: prompt,
+            role: role.to_string(),
+            content: prompt.to_string(),
         }
     }
 }
@@ -32,7 +36,7 @@ impl<'a> Message<'a> {
 #[derive(Serialize, Deserialize, Debug)]
 struct Prompt<'a> {
     model: &'a str,
-    messages: [Message<'a>; 2],
+    messages: [Message; 2],
     temperature: f32,
 }
 
@@ -61,41 +65,20 @@ impl<'a> GPTClient<'a> {
         }
     }
 
-    pub fn prompt(&self, prompt: &str) -> BoxResult<String> {
+    pub fn prompt(&self, prompt: &str) -> Result<String, Box<dyn Error>> {
         if prompt.len() >= MAX_TOKENS {
-            return Err(format!(
-                "Prompt cannot exceed length of {} characters",
-                MAX_TOKENS - 1
-            )
-            .into());
+            return Err(format!("Prompt cannot exceed length of {MAX_TOKENS} tokens").into());
         }
-
-        let client = Client::new();
 
         let p = Prompt::new(prompt);
-        let body = serde_json::to_string(&p)?;
 
-        let mut auth = String::from("Bearer ");
-        auth.push_str(self.api_key);
+        let response = minreq::post(self.url)
+            .with_timeout(15)
+            .with_header("Authorization", format!("Bearer {}", self.api_key))
+            .with_json(&p)?
+            .send()?
+            .json::<Response>()?;
 
-        let mut headers = HeaderMap::new();
-        headers.insert("Authorization", HeaderValue::from_str(auth.as_str())?);
-        headers.insert("Content-Type", HeaderValue::from_str("application/json")?);
-
-        let mut res = client.post(self.url).body(body).headers(headers).send()?;
-
-        let mut response_body = String::new();
-        res.read_to_string(&mut response_body)?;
-
-        let json_object: Value = serde_json::from_str(&response_body)?;
-        let answer = json_object["choices"][0]["message"]["content"].as_str();
-
-        match answer {
-            Some(a) => Ok(String::from(a)),
-            None => {
-                util::pretty_print(&response_body, "json");
-                Err(format!("JSON parse error").into())
-            }
-        }
+        Ok(response.choices[0].message.content.to_string())
     }
 }
