@@ -1,7 +1,6 @@
-//use super::util;
 use minreq;
 use serde::{Deserialize, Serialize};
-use std::{error::Error, io::Read};
+use std::error::Error;
 
 const OPENAI_API_URL: &str = "https://api.openai.com/v1/chat/completions";
 const OPENAI_MODEL: &str = "gpt-3.5-turbo";
@@ -44,7 +43,7 @@ impl<'a> Prompt<'a> {
     fn new(prompt: &'a str) -> Self {
         Self { model: OPENAI_MODEL,
             messages: [
-            Message::new("system", "I want you to act as a coding assistant. I will provide prompts specifying a program or data structure definition. Please only reply with the raw code output and nothing else. Do not include any markdown symbols around the code block. Please make the code ready to paste into an editor. Do not write explanations."),
+            Message::new("system", "I want you to act as a coding assistant. I will provide prompts specifying a program or data structure definition. Please only reply with the code output. Do not include markdown symbols around the code block. Please make the code ready to paste into an editor. Do not write explanations."),
             Message::new("user", prompt)
             ],
             temperature: TEMPERATURE
@@ -72,12 +71,12 @@ impl<'a> GPTClient<'a> {
 
         let p = Prompt::new(prompt);
 
-        let response = minreq::post(self.url)
-            .with_timeout(15)
+        let response: Response = minreq::post(self.url)
+            .with_timeout(120)
             .with_header("Authorization", format!("Bearer {}", self.api_key))
             .with_json(&p)?
             .send()?
-            .json::<Response>()?;
+            .json::<_>()?;
 
         Ok(response.choices[0].message.content.to_string())
     }
